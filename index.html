@@ -267,8 +267,8 @@
     <button class="btn-reset" onclick="resetForm()">Clear form</button>
     <button class="btn-send" id="send-btn" onclick="submitForm()">
       <span class="spin" id="spinner"></span>
-      <span id="send-icon">✉️</span>
-      <span id="send-lbl">Open in Outlook</span>
+      <span id="send-icon">📋</span>
+      <span id="send-lbl">Copy formatted email</span>
     </button>
   </div>
 </div>
@@ -280,26 +280,27 @@
   <div class="success-card">
 
     <div class="success-top">
-      <div class="success-icon">📨</div>
-      <h2>Email is ready in Outlook</h2>
-      <p>A kick-off email file has been downloaded and should be opening automatically.</p>
+      <div class="success-icon">📋</div>
+      <h2>Email copied to clipboard</h2>
+      <p>The formatted table — colours and all — is on your clipboard, ready to paste into Outlook.</p>
     </div>
 
     <div class="success-body">
 
       <div class="dl-badge">
-        <span>📎</span>
-        <span id="dl-filename">AV_Project_Kickoff.eml</span>
+        <span>✉️</span>
+        <span>Subject: <span id="dl-filename">AV Project Kick-Off</span></span>
+        <button class="btn-new" style="padding:5px 12px;font-size:12px" onclick="copySubject()">Copy subject</button>
       </div>
 
       <ul class="step-list">
         <li>
           <div class="step-num">1</div>
-          <div>Click the <strong>.eml file</strong> in your browser's download bar — it's at the bottom of the screen in Chrome or the top-right in Edge.</div>
+          <div>In Outlook, click <strong>New Email</strong>, then paste the <strong>subject</strong> above into the Subject line.</div>
         </li>
         <li>
           <div class="step-num">2</div>
-          <div>Outlook opens straight into <strong>compose mode</strong> with the formatted table already in the email body.</div>
+          <div>Click in the message body and press <strong>Ctrl+V</strong> (or <strong>⌘+V</strong> on Mac) — the formatted table will appear with all colours and layout intact.</div>
         </li>
         <li>
           <div class="step-num">3</div>
@@ -308,7 +309,7 @@
       </ul>
 
       <div class="action-row">
-        <button class="btn-dl-again" onclick="downloadAgain()">⬇ Download again</button>
+        <button class="btn-dl-again" onclick="copyAgain()">📋 Copy again</button>
         <button class="btn-new" onclick="newForm()">Start new kick-off</button>
       </div>
 
@@ -331,7 +332,7 @@
 </div>
 
 <script>
-var _html = '', _subj = '', _filename = '';
+var _html = '', _subj = '', _plain = '';
 
 /* ── Toggles ── */
 function tog(gid, btn) {
@@ -419,31 +420,42 @@ function buildHTML(d) {
    X-Unsent: 1 tells Outlook to open the file directly in compose mode
    rather than as a received/read message.
 ── */
-function downloadEml(subject, htmlBody) {
-  // Keep subject ASCII-safe for the email header
-  var safeSubj = subject.replace(/[^\x20-\x7E]/g, function(c){
-    // Replace smart dashes with plain hyphens in the header
-    if (c === '\u2014' || c === '\u2013') return '-';
-    return '';
-  });
+function buildPlainText(d) {
+  function row(l, val) { return l + ': ' + (val || String.fromCharCode(8212)); }
+  return [
+    'AUDIO VISUAL PROJECT KICK-OFF', '',
+    'PROJECT',
+    row('Project Name', d.pname), row('Project Manager', d.pm),
+    row('Job Number', d.jobno), row('Server Folder Location', d.server),
+    row('Client Contact', d.client), row('Estimated Start', d.start),
+    row('Other Requirements', d.pother), '',
+    'ENGINEERING',
+    row('Quoted By', d.quoted), row('Lead Engineer', d.eng),
+    row('Detailed Designs Required', d.ddes), row('Cable Schedule Required', d.cdet),
+    row('Other Requirements', d.eother), '',
+    'COMMISSIONING',
+    row('Lead Commissioner', d.lcomm), row('Teams Folder Location', d.teams),
+    row('DSP/Control Programming', d.dsp), row('Asset Register Required', d.asset),
+    row('As-Builts Required', d.asb), row('Photos Required', d.photos),
+    row('Training Required', d.train), row('User Guides Required', d.guides),
+    row('Other Requirements', d.cother)
+  ].join('\n');
+}
 
-  var eml =
-    'MIME-Version: 1.0\r\n' +
-    'X-Unsent: 1\r\n' +                          // ← opens Outlook in compose mode
-    'Content-Type: text/html; charset=UTF-8\r\n' +
-    'Subject: ' + safeSubj + '\r\n' +
-    '\r\n' +
-    htmlBody;
+function copyToClipboard(htmlBody, plainBody) {
+  if (navigator.clipboard && window.ClipboardItem) {
+    var item = new ClipboardItem({
+      'text/html':  new Blob([htmlBody],  { type: 'text/html' }),
+      'text/plain': new Blob([plainBody], { type: 'text/plain' })
+    });
+    return navigator.clipboard.write([item]);
+  }
+  if (navigator.clipboard) return navigator.clipboard.writeText(plainBody);
+  return Promise.reject(new Error('Clipboard API not available'));
+}
 
-  var blob = new Blob([eml], { type: 'message/rfc822' });
-  var url  = URL.createObjectURL(blob);
-  var a    = document.createElement('a');
-  a.href     = url;
-  a.download = _filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 15000);
+function copySubject() {
+  if (navigator.clipboard) navigator.clipboard.writeText(_subj);
 }
 
 /* ── Submit ── */
@@ -478,27 +490,32 @@ function submitForm() {
 
   _html  = buildHTML(d);
   _subj  = 'AV Project Kick-Off - ' + d.pname + (d.jobno ? ' (' + d.jobno + ')' : '');
-  _filename = ('AV Kickoff - ' + d.pname + (d.jobno ? ' ' + d.jobno : ''))
-    .replace(/[^a-zA-Z0-9 \-_]/g, '').trim().replace(/\s+/g, '_') + '.eml';
+  _plain = buildPlainText(d);
 
   setSending(true);
 
-  // Download the .eml file
-  downloadEml(_subj, _html);
+  copyToClipboard(_html, _plain).then(function(){
+    // Show success
+    document.getElementById('email-rendered').innerHTML = _html;
+    document.getElementById('prev-subj').textContent    = _subj;
+    document.getElementById('dl-filename').textContent  = _subj;
 
-  // Show success
-  document.getElementById('email-rendered').innerHTML = _html;
-  document.getElementById('prev-subj').textContent    = _subj;
-  document.getElementById('dl-filename').textContent  = _filename;
+    document.getElementById('form-page').style.display    = 'none';
+    document.getElementById('success-screen').style.display = 'block';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
-  document.getElementById('form-page').style.display    = 'none';
-  document.getElementById('success-screen').style.display = 'block';
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-
-  setSending(false);
+    setSending(false);
+  }).catch(function(){
+    setSending(false);
+    alert('Could not copy to clipboard. Please allow clipboard access in your browser and try again.');
+  });
 }
 
-function downloadAgain() { downloadEml(_subj, _html); }
+function copyAgain() {
+  copyToClipboard(_html, _plain).catch(function(){
+    alert('Could not copy to clipboard. Please allow clipboard access in your browser and try again.');
+  });
+}
 
 function flash(id) {
   var e = document.getElementById(id);
@@ -513,7 +530,7 @@ function setSending(on) {
   btn.disabled = on;
   document.getElementById('spinner').style.display   = on ? 'block' : 'none';
   document.getElementById('send-icon').style.display = on ? 'none'  : 'inline';
-  document.getElementById('send-lbl').textContent    = on ? 'Generating...' : 'Open in Outlook';
+  document.getElementById('send-lbl').textContent    = on ? 'Copying...' : 'Copy formatted email';
 }
 
 function resetForm() {
